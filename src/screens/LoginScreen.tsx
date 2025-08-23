@@ -34,7 +34,7 @@ const LoginScreen: React.FC = () => {
 
   return (
     <Container>
-      <Title>App Marcação de Consultas</Title>
+      <Title>Login</Title>
       
       <Input
         placeholder="Email"

@@ -9,10 +9,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import { RootStackParamList } from '../types/navigation';
 import theme from '../styles/theme';
 import Header from '../components/Header';
+import UserManagement from '../components/UserManagement';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-type DoctorDashboardScreenProps = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'DoctorDashboard'>;
+type AdminDashboardScreenProps = {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'AdminDashboard'>;
 };
 
 interface Appointment {
@@ -24,6 +25,13 @@ interface Appointment {
   time: string;
   specialty: string;
   status: 'pending' | 'confirmed' | 'cancelled';
+}
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'doctor' | 'patient';
 }
 
 interface StyledProps {
@@ -52,28 +60,42 @@ const getStatusText = (status: string) => {
   }
 };
 
-const DoctorDashboardScreen: React.FC = () => {
+const AdminDashboardScreen: React.FC = () => {
   const { user, signOut } = useAuth();
-  const navigation = useNavigation<DoctorDashboardScreenProps['navigation']>();
+  const navigation = useNavigation<AdminDashboardScreenProps['navigation']>();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'appointments' | 'users'>('appointments');
 
-  const loadAppointments = async () => {
+  const loadData = async () => {
     try {
+      // Carrega consultas
       const storedAppointments = await AsyncStorage.getItem('@MedicalApp:appointments');
       if (storedAppointments) {
         const allAppointments: Appointment[] = JSON.parse(storedAppointments);
-        const doctorAppointments = allAppointments.filter(
-          (appointment) => appointment.doctorId === user?.id
-        );
-        setAppointments(doctorAppointments);
+        setAppointments(allAppointments);
+      }
+
+      // Carrega usuários
+      const storedUsers = await AsyncStorage.getItem('@MedicalApp:users');
+      if (storedUsers) {
+        const allUsers: User[] = JSON.parse(storedUsers);
+        setUsers(allUsers);
       }
     } catch (error) {
-      console.error('Erro ao carregar consultas:', error);
+      console.error('Erro ao carregar dados:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  // Carrega os dados quando a tela estiver em foco
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [])
+  );
 
   const handleUpdateStatus = async (appointmentId: string, newStatus: 'confirmed' | 'cancelled') => {
     try {
@@ -87,44 +109,55 @@ const DoctorDashboardScreen: React.FC = () => {
           return appointment;
         });
         await AsyncStorage.setItem('@MedicalApp:appointments', JSON.stringify(updatedAppointments));
-        loadAppointments(); // Recarrega a lista
+        loadData(); // Recarrega os dados
       }
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
     }
   };
 
-  // Carrega as consultas quando a tela estiver em foco
-  useFocusEffect(
-    React.useCallback(() => {
-      loadAppointments();
-    }, [])
-  );
-
   return (
     <Container>
       <Header />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Title>Minhas Consultas</Title>
+        <Title>Painel Administrativo</Title>
 
-        <Button
-          title="Meu Perfil"
-          onPress={() => navigation.navigate('Profile')}
-          containerStyle={styles.button as ViewStyle}
-          buttonStyle={styles.buttonStyle}
-        />
+        {/* Abas de navegação */}
+        <TabContainer>
+          <TabButton 
+            active={activeTab === 'appointments'} 
+            onPress={() => setActiveTab('appointments')}
+          >
+            <TabText active={activeTab === 'appointments'}>Consultas</TabText>
+          </TabButton>
+          <TabButton 
+            active={activeTab === 'users'} 
+            onPress={() => setActiveTab('users')}
+          >
+            <TabText active={activeTab === 'users'}>Usuários</TabText>
+          </TabButton>
+        </TabContainer>
 
+        {activeTab === 'appointments' ? (
+          <>
+            <SectionTitle>Últimas Consultas</SectionTitle>
         {loading ? (
-          <LoadingText>Carregando consultas...</LoadingText>
+          <LoadingText>Carregando dados...</LoadingText>
         ) : appointments.length === 0 ? (
           <EmptyText>Nenhuma consulta agendada</EmptyText>
         ) : (
           appointments.map((appointment) => (
             <AppointmentCard key={appointment.id}>
               <ListItem.Content>
-                <ListItem.Title style={styles.dateTime as TextStyle}>
-                  {appointment.date} às {appointment.time}
+                <ListItem.Title style={styles.doctorName as TextStyle}>
+                  {appointment.doctorName}
                 </ListItem.Title>
+                <ListItem.Subtitle style={styles.specialty as TextStyle}>
+                  {appointment.specialty}
+                </ListItem.Subtitle>
+                <Text style={styles.dateTime as TextStyle}>
+                  {appointment.date} às {appointment.time}
+                </Text>
                 <StatusBadge status={appointment.status}>
                   <StatusText status={appointment.status}>
                     {getStatusText(appointment.status)}
@@ -150,13 +183,10 @@ const DoctorDashboardScreen: React.FC = () => {
             </AppointmentCard>
           ))
         )}
-
-        <Button
-          title="Sair"
-          onPress={signOut}
-          containerStyle={styles.button as ViewStyle}
-          buttonStyle={styles.logoutButton}
-        />
+          </>
+        ) : (
+          <UserManagement onSignOut={signOut} />
+        )}
       </ScrollView>
     </Container>
   );
@@ -165,6 +195,8 @@ const DoctorDashboardScreen: React.FC = () => {
 const styles = {
   scrollContent: {
     padding: 20,
+    paddingBottom: 40,
+    flexGrow: 1,
   },
   button: {
     marginBottom: 20,
@@ -190,16 +222,27 @@ const styles = {
     backgroundColor: theme.colors.error,
     paddingVertical: 8,
   },
-  dateTime: {
-    fontSize: 16,
+  doctorName: {
+    fontSize: 18,
     fontWeight: '700',
     color: theme.colors.text,
+  },
+  specialty: {
+    fontSize: 14,
+    color: theme.colors.text,
+    marginTop: 4,
+  },
+  dateTime: {
+    fontSize: 14,
+    color: theme.colors.text,
+    marginTop: 4,
   },
 };
 
 const Container = styled.View`
   flex: 1;
   background-color: ${theme.colors.background};
+  position: relative;
 `;
 
 const Title = styled.Text`
@@ -208,6 +251,14 @@ const Title = styled.Text`
   color: ${theme.colors.text};
   margin-bottom: 20px;
   text-align: center;
+`;
+
+const SectionTitle = styled.Text`
+  font-size: 20px;
+  font-weight: bold;
+  color: ${theme.colors.text};
+  margin-bottom: 15px;
+  margin-top: 10px;
 `;
 
 const AppointmentCard = styled(ListItem)`
@@ -253,4 +304,26 @@ const ButtonContainer = styled.View`
   margin-top: 8px;
 `;
 
-export default DoctorDashboardScreen;
+const TabContainer = styled.View`
+  flex-direction: row;
+  background-color: ${theme.colors.surface};
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 1px solid ${theme.colors.border};
+`;
+
+const TabButton = styled.TouchableOpacity<{ active: boolean }>`
+  flex: 1;
+  padding: 12px;
+  align-items: center;
+  background-color: ${props => props.active ? theme.colors.primary : 'transparent'};
+  border-radius: 8px;
+`;
+
+const TabText = styled.Text<{ active: boolean }>`
+  color: ${props => props.active ? '#fff' : theme.colors.text};
+  font-weight: ${props => props.active ? 'bold' : 'normal'};
+  font-size: 16px;
+`;
+
+export default AdminDashboardScreen; 
